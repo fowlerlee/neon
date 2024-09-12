@@ -435,7 +435,7 @@ async fn start_safekeeper(conf: SafeKeeperConf) -> Result<()> {
         .then(|| Handle::try_current().expect("no runtime in main"));
 
     // Load all timelines from disk to memory.
-    GlobalTimelines::init(conf.clone()).await?;
+    let global_timelines = Arc::new(GlobalTimelines::init(conf.clone()).await?);
 
     let conf_ = conf.clone();
     // Run everything in current thread rt, if asked.
@@ -462,7 +462,7 @@ async fn start_safekeeper(conf: SafeKeeperConf) -> Result<()> {
             const TOMBSTONE_TTL: Duration = Duration::from_secs(3600 * 24);
             loop {
                 tokio::time::sleep(TOMBSTONE_TTL).await;
-                GlobalTimelines::housekeeping(&TOMBSTONE_TTL);
+                global_timelines.housekeeping(&TOMBSTONE_TTL);
             }
         })
         .map(|res| ("Timeline map housekeeping".to_owned(), res));
