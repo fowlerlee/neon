@@ -307,10 +307,10 @@ pub async fn handle_request(
     request: Request,
     sk_auth_token: Option<SecretString>,
 ) -> Result<Response> {
-    let existing_tli = GlobalTimelines::get(TenantTimelineId::new(
+    let existing_tli = Arc::new(GlobalTimelines::get(TenantTimelineId::new(
         request.tenant_id,
         request.timeline_id,
-    ));
+    )));
     if existing_tli.is_ok() {
         bail!("Timeline {} already exists", request.timeline_id);
     }
@@ -369,9 +369,9 @@ async fn pull_timeline(
         status.acceptor_state.epoch
     );
 
-    let conf = &GlobalTimelines::get_global_config();
+    let conf = Arc::to_owned(&GlobalTimelines::get_global_config()) ;
 
-    let (_tmp_dir, tli_dir_path) = create_temp_timeline_dir(conf, ttid).await?;
+    let (_tmp_dir, tli_dir_path) = create_temp_timeline_dir(&conf, ttid).await?;
 
     let client = Client::new(host.clone(), sk_auth_token.clone());
     // Request stream with basebackup archive.
@@ -420,7 +420,7 @@ async fn pull_timeline(
     fsync_async_opt(&tli_dir_path, !conf.no_sync).await?;
 
     // Let's create timeline from temp directory and verify that it's correct
-    let (commit_lsn, flush_lsn) = validate_temp_timeline(conf, ttid, &tli_dir_path).await?;
+    let (commit_lsn, flush_lsn) = validate_temp_timeline(&conf, ttid, &tli_dir_path).await?;
     info!(
         "finished downloading timeline {}, commit_lsn={}, flush_lsn={}",
         ttid, commit_lsn, flush_lsn
@@ -428,7 +428,7 @@ async fn pull_timeline(
     assert!(status.commit_lsn <= status.flush_lsn);
 
     // Finally, load the timeline.
-    let _tli = load_temp_timeline(conf, ttid, &tli_dir_path).await?;
+    let _tli = load_temp_timeline(&conf, ttid, &tli_dir_path).await?;
 
     Ok(Response {
         safekeeper_host: host,
@@ -494,10 +494,10 @@ pub async fn load_temp_timeline(
     tmp_path: &Utf8PathBuf,
 ) -> Result<Arc<Timeline>> {
     // Take a lock to prevent concurrent loadings
-    let load_lock = GlobalTimelines::loading_lock().await;
+    let load_lock = Arc::clone(GlobalTimelines::loading_lock()).await;
     let guard = load_lock.lock().await;
 
-    if !matches!(GlobalTimelines::get(ttid), Err(TimelineError::NotFound(_))) {
+    if !matches!(Arc::clone(GlobalTimelines::get(ttid)), Err(TimelineError::NotFound(_))) {
         bail!("timeline already exists, cannot overwrite it")
     }
 
@@ -513,7 +513,7 @@ pub async fn load_temp_timeline(
     fsync_async_opt(&conf.workdir, !conf.no_sync).await?;
     durable_rename(tmp_path, &timeline_path, !conf.no_sync).await?;
 
-    let tli = GlobalTimelines::load_timeline(&guard, ttid)
+    let tli = Arc::new(GlobalTimelines::load_timeline(&guard, ttid))
         .await
         .context("Failed to load timeline after copy")?;
 

@@ -671,7 +671,7 @@ impl Timeline {
         // TODO: It's better to wait for s3 offloader termination before
         // removing data from s3. Though since s3 doesn't have transactions it
         // still wouldn't guarantee absense of data after removal.
-        let conf = GlobalTimelines::get_global_config();
+        let conf = Arc::new(GlobalTimelines::get_global_config());
         if !only_local && conf.is_wal_backup_enabled() {
             // Note: we concurrently delete remote storage data from multiple
             // safekeepers. That's ok, s3 replies 200 if object doesn't exist and we
@@ -1001,7 +1001,7 @@ impl WalResidentTimeline {
 
     pub async fn get_walreader(&self, start_lsn: Lsn) -> Result<WalReader> {
         let (_, persisted_state) = self.get_state().await;
-        let enable_remote_read = GlobalTimelines::get_global_config().is_wal_backup_enabled();
+        let enable_remote_read = Arc::new(GlobalTimelines::get_global_config()).is_wal_backup_enabled();
 
         WalReader::new(
             &self.ttid,
@@ -1111,7 +1111,7 @@ impl ManagerTimeline {
 
     /// Try to switch state Offloaded->Present.
     pub(crate) async fn switch_to_present(&self) -> anyhow::Result<()> {
-        let conf = GlobalTimelines::get_global_config();
+        let conf = Arc::new(GlobalTimelines::get_global_config());
         let mut shared = self.write_shared_state().await;
 
         // trying to restore WAL storage

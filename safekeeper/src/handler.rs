@@ -287,7 +287,7 @@ impl SafekeeperPostgresHandler {
         pgb: &mut PostgresBackend<IO>,
     ) -> Result<(), QueryError> {
         // Get timeline, handling "not found" error
-        let tli = match GlobalTimelines::get(self.ttid) {
+        let tli = match Arc::clone(GlobalTimelines::get(self.ttid) ){
             Ok(tli) => Ok(Some(tli)),
             Err(TimelineError::NotFound(_)) => Ok(None),
             Err(e) => Err(QueryError::Other(e.into())),
@@ -321,7 +321,7 @@ impl SafekeeperPostgresHandler {
         &mut self,
         pgb: &mut PostgresBackend<IO>,
     ) -> Result<(), QueryError> {
-        let tli = GlobalTimelines::get(self.ttid).map_err(|e| QueryError::Other(e.into()))?;
+        let tli = Arc::new(GlobalTimelines::get(self.ttid).map_err(|e| QueryError::Other(e.into())))?;
 
         let lsn = if self.is_walproposer_recovery() {
             // walproposer should get all local WAL until flush_lsn
