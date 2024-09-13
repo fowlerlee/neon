@@ -197,21 +197,21 @@ pub struct FileInfo {
 /// Build debug dump response, using the provided [`Args`] filters.
 pub async fn build(args: Args) -> Result<Response> {
     let start_time = Utc::now();
-    let timelines_count = GlobalTimelines::timelines_count();
-    let config = GlobalTimelines::get_global_config();
+    let timelines_count = Arc::new(GlobalTimelines::timelines_count());
+    let config = Arc::new(GlobalTimelines::get_global_config());
 
     let ptrs_snapshot = if args.tenant_id.is_some() && args.timeline_id.is_some() {
         // If both tenant_id and timeline_id are specified, we can just get the
         // timeline directly, without taking a snapshot of the whole list.
         let ttid = TenantTimelineId::new(args.tenant_id.unwrap(), args.timeline_id.unwrap());
-        if let Ok(tli) = GlobalTimelines::get(ttid) {
+        if let Ok(tli) = Arc::new(GlobalTimelines::get(ttid)) {
             vec![tli]
         } else {
             vec![]
         }
     } else {
         // Otherwise, take a snapshot of the whole list.
-        GlobalTimelines::get_all()
+        Arc::new(GlobalTimelines::get_all())
     };
 
     let mut timelines = Vec::new();
