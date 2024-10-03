@@ -123,9 +123,11 @@ async fn tenant_delete_handler(mut request: Request<Body>) -> Result<Response<Bo
     ensure_no_body(&mut request).await?;
     // FIXME: `delete_force_all_for_tenant` can return an error for multiple different reasons;
     // Using an `InternalServerError` should be fixed when the types support it
-    let delete_info = GlobalTimelines::delete_force_all_for_tenant(&tenant_id, only_local)
-        .await
-        .map_err(ApiError::InternalServerError)?;
+    let delete_info = Arc::new(GlobalTimelines::delete_force_all_for_tenant(
+        &tenant_id, only_local,
+    ))
+    .await
+    .map_err(ApiError::InternalServerError)?;
     json_response(
         StatusCode::OK,
         delete_info
@@ -154,9 +156,14 @@ async fn timeline_create_handler(mut request: Request<Body>) -> Result<Response<
             .commit_lsn
             .segment_lsn(server_info.wal_seg_size as usize)
     });
-    GlobalTimelines::create(ttid, server_info, request_data.commit_lsn, local_start_lsn)
-        .await
-        .map_err(ApiError::InternalServerError)?;
+    Arc::new(GlobalTimelines::create(
+        ttid,
+        server_info,
+        request_data.commit_lsn,
+        local_start_lsn,
+    ))
+    .await
+    .map_err(ApiError::InternalServerError)?;
 
     json_response(StatusCode::OK, ())
 }
@@ -165,10 +172,12 @@ async fn timeline_create_handler(mut request: Request<Body>) -> Result<Response<
 /// Note: it is possible to do the same with debug_dump.
 async fn timeline_list_handler(request: Request<Body>) -> Result<Response<Body>, ApiError> {
     check_permission(&request, None)?;
-    let res: Vec<TenantTimelineId> = GlobalTimelines::get_all()
-        .iter()
-        .map(|tli| tli.ttid)
-        .collect();
+    let res: Vec<TenantTimelineId> = Arc::new(
+        GlobalTimelines::get_all()
+            .iter()
+            .map(|tli| tli.ttid)
+            .collect(),
+    );
     json_response(StatusCode::OK, res)
 }
 
@@ -180,7 +189,7 @@ async fn timeline_status_handler(request: Request<Body>) -> Result<Response<Body
     );
     check_permission(&request, Some(ttid.tenant_id))?;
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
     let (inmem, state) = tli.get_state().await;
     let flush_lsn = tli.get_flush_lsn().await;
 
@@ -233,9 +242,11 @@ async fn timeline_delete_handler(mut request: Request<Body>) -> Result<Response<
     ensure_no_body(&mut request).await?;
     // FIXME: `delete_force` can fail from both internal errors and bad requests. Add better
     // error handling here when we're able to.
-    let resp = GlobalTimelines::delete(&ttid, only_local)
-        .await
-        .map_err(ApiError::InternalServerError)?;
+    let resp = Arc::new(
+        GlobalTimelines::delete(&ttid, only_local)
+            .await
+            .map_err(ApiError::InternalServerError)?,
+    );
     json_response(StatusCode::OK, resp)
 }
 
@@ -261,7 +272,7 @@ async fn timeline_snapshot_handler(request: Request<Body>) -> Result<Response<Bo
     );
     check_permission(&request, Some(ttid.tenant_id))?;
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
     // Note: with evicted timelines it should work better then de-evict them and
     // stream; probably start_snapshot would copy partial s3 file to dest path
     // and stream control file, or return WalResidentTimeline if timeline is not
@@ -304,7 +315,7 @@ async fn timeline_copy_handler(mut request: Request<Body>) -> Result<Response<Bo
         parse_request_param(&request, "source_timeline_id")?,
     );
 
-    let source = GlobalTimelines::get(ttid)?;
+    let source = Arc::new(GlobalTimelines::get(ttid)?);
 
     copy_timeline::handle_request(copy_timeline::Request{
         source,
@@ -328,7 +339,7 @@ async fn patch_control_file_handler(
         parse_request_param(&request, "timeline_id")?,
     );
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
 
     let patch_request: patch_control_file::Request = json_request(&mut request).await?;
     let response = patch_control_file::handle_request(tli, patch_request)
@@ -347,7 +358,7 @@ async fn timeline_checkpoint_handler(request: Request<Body>) -> Result<Response<
         parse_request_param(&request, "timeline_id")?,
     );
 
-    let tli = GlobalTimelines::get(ttid)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid)?);
     tli.write_shared_state()
         .await
         .sk
@@ -377,7 +388,7 @@ async fn timeline_digest_handler(request: Request<Body>) -> Result<Response<Body
         )))?,
     };
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
     let tli = tli
         .wal_residence_guard()
         .await
@@ -399,7 +410,7 @@ async fn timeline_backup_partial_reset(request: Request<Body>) -> Result<Respons
     );
     check_permission(&request, Some(ttid.tenant_id))?;
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
 
     let response = tli
         .backup_partial_reset()
@@ -421,7 +432,7 @@ async fn timeline_term_bump_handler(
 
     let request_data: TimelineTermBumpRequest = json_request(&mut request).await?;
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
     let response = tli
         .term_bump(request_data.term)
         .await
@@ -458,7 +469,7 @@ async fn record_safekeeper_info(mut request: Request<Body>) -> Result<Response<B
         standby_horizon: sk_info.standby_horizon.0,
     };
 
-    let tli = GlobalTimelines::get(ttid).map_err(ApiError::from)?;
+    let tli = Arc::new(GlobalTimelines::get(ttid).map_err(ApiError::from)?);
     tli.record_safekeeper_info(proto_sk_info)
         .await
         .map_err(ApiError::InternalServerError)?;
