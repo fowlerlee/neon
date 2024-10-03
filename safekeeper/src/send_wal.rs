@@ -386,7 +386,7 @@ impl SafekeeperPostgresHandler {
         start_pos: Lsn,
         term: Option<Term>,
     ) -> Result<(), QueryError> {
-        let tli = GlobalTimelines::get(self.ttid).map_err(|e| QueryError::Other(e.into()))?;
+        let tli = Arc::new(GlobalTimelines::get(self.ttid).map_err(|e| QueryError::Other(e.into()))?);
         let residence_guard = tli.wal_residence_guard().await?;
 
         if let Err(end) = self

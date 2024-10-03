@@ -34,7 +34,7 @@ pub async fn handle_request(request: Request) -> Result<()> {
     // TODO: request.until_lsn MUST be a valid LSN, and we cannot check it :(
     //   if LSN will point to the middle of a WAL record, timeline will be in "broken" state
 
-    match GlobalTimelines::get(request.destination_ttid) {
+    match Arc::new(GlobalTimelines::get(request.destination_ttid)) {
         // timeline already exists. would be good to check that this timeline is the copy
         // of the source timeline, but it isn't obvious how to do that
         Ok(_) => return Ok(()),
@@ -48,10 +48,10 @@ pub async fn handle_request(request: Request) -> Result<()> {
 
     let source_tli = request.source.wal_residence_guard().await?;
 
-    let conf = &GlobalTimelines::get_global_config();
+    let mut conf = Arc::to_owned(&GlobalTimelines::get_globalconfig());
     let ttid = request.destination_ttid;
 
-    let (_tmp_dir, tli_dir_path) = create_temp_timeline_dir(conf, ttid).await?;
+    let (_tmp_dir, tli_dir_path) = create_temp_timeline_dir(&conf, ttid).await?;
 
     let (mem_state, state) = source_tli.get_state().await;
     let start_lsn = state.timeline_start_lsn;
@@ -154,12 +154,12 @@ pub async fn handle_request(request: Request) -> Result<()> {
     new_state.peer_horizon_lsn = request.until_lsn;
     new_state.backup_lsn = new_backup_lsn;
 
-    let mut file_storage = FileStorage::create_new(tli_dir_path.clone(), conf, new_state.clone())?;
+    let mut file_storage = FileStorage::create_new(tli_dir_path.clone(), &conf, new_state.clone())?;
     file_storage.persist(&new_state).await?;
 
     // now we have a ready timeline in a temp directory
-    validate_temp_timeline(conf, request.destination_ttid, &tli_dir_path).await?;
-    load_temp_timeline(conf, request.destination_ttid, &tli_dir_path).await?;
+    validate_temp_timeline(&conf, request.destination_ttid, &tli_dir_path).await?;
+    load_temp_timeline(&conf, request.destination_ttid, &tli_dir_path).await?;
 
     Ok(())
 }

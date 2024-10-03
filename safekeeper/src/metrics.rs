@@ -682,7 +682,7 @@ impl Collector for TimelineCollector {
         self.written_wal_seconds.reset();
         self.flushed_wal_seconds.reset();
 
-        let timelines_count = GlobalTimelines::get_all().len();
+        let timelines_count = Arc::new(GlobalTimelines::get_all().len()).unwrap();
         let mut active_timelines_count = 0;
 
         // Prometheus Collector is sync, and data is stored under async lock. To
@@ -813,7 +813,7 @@ impl Collector for TimelineCollector {
 
 async fn collect_timeline_metrics() -> Vec<FullTimelineInfo> {
     let mut res = vec![];
-    let active_timelines = GlobalTimelines::get_global_broker_active_set().get_all();
+    let active_timelines = Arc::new(GlobalTimelines::get_global_broker_active_set().get_all());
 
     for tli in active_timelines {
         if let Some(info) = tli.info_for_metrics().await {
